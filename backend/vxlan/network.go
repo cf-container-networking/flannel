@@ -16,7 +16,6 @@ package vxlan
 
 import (
 	"bytes"
-	"encoding/json"
 	"fmt"
 	"net"
 	"sync"
@@ -117,8 +116,10 @@ func (n *network) handleSubnetEvents(batch []subnet.Event) {
 			}
 
 			var attrs vxlanLeaseAttrs
-			if err := json.Unmarshal(evt.Lease.Attrs.BackendData, &attrs); err != nil {
-				log.Error("Error decoding subnet lease JSON: ", err)
+			var err error
+			attrs.VtepMAC, err = getVtepMAC(evt.Lease.Subnet.IP)
+			if err != nil {
+				log.Errorf("get vtep mac: %s", err)
 				continue
 			}
 			n.rts.set(evt.Lease.Subnet, net.HardwareAddr(attrs.VtepMAC))
@@ -133,11 +134,12 @@ func (n *network) handleSubnetEvents(batch []subnet.Event) {
 			}
 
 			var attrs vxlanLeaseAttrs
-			if err := json.Unmarshal(evt.Lease.Attrs.BackendData, &attrs); err != nil {
-				log.Error("Error decoding subnet lease JSON: ", err)
+			var err error
+			attrs.VtepMAC, err = getVtepMAC(evt.Lease.Subnet.IP)
+			if err != nil {
+				log.Errorf("get vtep mac: %s", err)
 				continue
 			}
-
 			if len(attrs.VtepMAC) > 0 {
 				n.dev.DelL2(neigh{IP: evt.Lease.Attrs.PublicIP, MAC: net.HardwareAddr(attrs.VtepMAC)})
 			}
@@ -171,8 +173,9 @@ func (n *network) handleInitialSubnetEvents(batch []subnet.Event) error {
 			continue
 		}
 
-		if err := json.Unmarshal(evt.Lease.Attrs.BackendData, &leaseAttrsList[i]); err != nil {
-			log.Error("Error decoding subnet lease JSON: ", err)
+		leaseAttrsList[i].VtepMAC, err = getVtepMAC(evt.Lease.Subnet.IP)
+		if err != nil {
+			log.Errorf("get vtep mac: %s", err)
 			evtMarker[i] = true
 			continue
 		}

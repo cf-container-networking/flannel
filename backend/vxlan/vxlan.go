@@ -48,16 +48,10 @@ func New(sm subnet.Manager, extIface *backend.ExternalInterface) (backend.Backen
 	return be, nil
 }
 
-func newSubnetAttrs(extEaddr net.IP, mac net.HardwareAddr) (*subnet.LeaseAttrs, error) {
-	data, err := json.Marshal(&vxlanLeaseAttrs{hardwareAddr(mac)})
-	if err != nil {
-		return nil, err
-	}
-
+func newSubnetAttrs(extEaddr net.IP) (*subnet.LeaseAttrs, error) {
 	return &subnet.LeaseAttrs{
 		PublicIP:    ip.FromIP(extEaddr),
 		BackendType: "vxlan",
-		BackendData: json.RawMessage(data),
 	}, nil
 }
 
@@ -95,7 +89,7 @@ func (be *VXLANBackend) RegisterNetwork(ctx context.Context, network string, con
 		return nil, err
 	}
 
-	sa, err := newSubnetAttrs(be.extIface.ExtAddr, dev.MACAddr())
+	sa, err := newSubnetAttrs(be.extIface.ExtAddr)
 	if err != nil {
 		return nil, err
 	}
@@ -117,6 +111,7 @@ func (be *VXLANBackend) RegisterNetwork(ctx context.Context, network string, con
 		IP:        l.Subnet.IP,
 		PrefixLen: config.Network.PrefixLen,
 	}
+
 	if err = dev.Configure(vxlanNet); err != nil {
 		return nil, err
 	}

@@ -25,6 +25,7 @@ import (
 	"github.com/vishvananda/netlink"
 	"github.com/vishvananda/netlink/nl"
 
+	"github.com/coreos/flannel/pkg/hwaddr"
 	"github.com/coreos/flannel/pkg/ip"
 )
 
@@ -113,6 +114,7 @@ func ensureLink(vxlan *netlink.Vxlan) (*netlink.Vxlan, error) {
 	if err != nil {
 		return nil, fmt.Errorf("can't locate created vxlan device with index %v", ifindex)
 	}
+
 	var ok bool
 	if vxlan, ok = link.(*netlink.Vxlan); !ok {
 		return nil, fmt.Errorf("created vxlan device with index %v is not vxlan", ifindex)
@@ -121,8 +123,21 @@ func ensureLink(vxlan *netlink.Vxlan) (*netlink.Vxlan, error) {
 	return vxlan, nil
 }
 
+func getVtepMAC(subnetIP ip.IP4) (hardwareAddr, error) {
+	hwAddr, err := hwaddr.GenerateHardwareAddr4(subnetIP.ToIP(), hwaddr.PrivateMACPrefix)
+	if err != nil {
+		return nil, fmt.Errorf("converting ip (%s) to hwaddr: %s", subnetIP, err)
+	}
+	return hardwareAddr(hwAddr), nil
+}
+
 func (dev *vxlanDevice) Configure(ipn ip.IP4Net) error {
 	setAddr4(dev.link, ipn.ToIPNet())
+	vtepMAC, err := getVtepMAC(ipn.IP)
+	if err != nil {
+		return err
+	}
+	netlink.LinkSetHardwareAddr(dev.link, net.HardwareAddr(vtepMAC))
 
 	if err := netlink.LinkSetUp(dev.link); err != nil {
 		return fmt.Errorf("failed to set interface %s to UP state: %s", dev.link.Attrs().Name, err)
@@ -144,10 +159,6 @@ func (dev *vxlanDevice) Configure(ipn ip.IP4Net) error {
 
 func (dev *vxlanDevice) Destroy() {
 	netlink.LinkDel(dev.link)
-}
-
-func (dev *vxlanDevice) MACAddr() net.HardwareAddr {
-	return dev.link.HardwareAddr
 }
 
 func (dev *vxlanDevice) MTU() int {
