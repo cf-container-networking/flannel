@@ -17,6 +17,9 @@ package subnet
 import (
 	"errors"
 	"fmt"
+	"io/ioutil"
+	"net"
+	"regexp"
 	"strconv"
 	"time"
 
@@ -121,6 +124,44 @@ func findLeaseByIP(leases []Lease, pubIP ip.IP4) *Lease {
 	return nil
 }
 
+const (
+	flannelSubnetRegex  = `FLANNEL_SUBNET=((?:[0-9]{1,3}\.){3}[0-9]{1,3}/[0-9]{1,2})`
+	flannelNetworkRegex = `FLANNEL_NETWORK=((?:[0-9]{1,3}\.){3}[0-9]{1,3}/[0-9]{1,2})`
+)
+
+func discoverNetworkInfo(filepath string) (string, string, error) {
+	fileContents, err := ioutil.ReadFile(filepath)
+	if err != nil {
+		return "", "", err
+	}
+
+	subnetMatches := regexp.MustCompile(flannelSubnetRegex).FindStringSubmatch(string(fileContents))
+	if len(subnetMatches) < 2 {
+		return "", "", fmt.Errorf("unable to parse flannel subnet file")
+	}
+
+	networkMatches := regexp.MustCompile(flannelNetworkRegex).FindStringSubmatch(string(fileContents))
+	if len(networkMatches) < 2 {
+		return "", "", fmt.Errorf("unable to parse flannel network from subnet file")
+	}
+
+	return subnetMatches[1], networkMatches[1], nil
+}
+
+func tryGetSubnetFromFile() *ip.IP4Net {
+	subnet, _, err := discoverNetworkInfo("/run/flannel/subnet.env")
+	if err != nil {
+		return nil
+	}
+	ipaddr, ipnet, err := net.ParseCIDR(subnet)
+	if err != nil {
+		return nil
+	}
+	ipnet.IP = ipaddr
+	ip4net := ip.FromIPNet(ipnet)
+	return &ip4net
+}
+
 func (m *LocalManager) tryAcquireLease(ctx context.Context, network string, config *Config, extIaddr ip.IP4, attrs *LeaseAttrs) (*Lease, error) {
 	leases, _, err := m.registry.getSubnets(ctx, network)
 	if err != nil {
@@ -128,7 +169,18 @@ func (m *LocalManager) tryAcquireLease(ctx context.Context, network string, conf
 	}
 
 	// try to reuse a subnet if there's one that matches our IP
-	if l := findLeaseByIP(leases, extIaddr); l != nil {
+	// try to find one in etcd
+	l := findLeaseByIP(leases, extIaddr)
+
+	// if not in etcd, try to find it in the local filesystem
+	if l == nil {
+		subnet := tryGetSubnetFromFile()
+		if subnet != nil {
+			l = &Lease{Subnet: *subnet}
+		}
+	}
+
+	if l != nil {
 		// make sure the existing subnet is still within the configured network
 		if isSubnetConfigCompat(config, l.Subnet) {
 			log.Infof("Found lease (%v) for current IP (%v), reusing", l.Subnet, extIaddr)
