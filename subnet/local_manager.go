@@ -124,6 +124,16 @@ func findLeaseByIP(leases []Lease, pubIP ip.IP4) *Lease {
 	return nil
 }
 
+func findLeaseBySubnet(leases []Lease, subnet ip.IP4Net) *Lease {
+	for _, l := range leases {
+		if subnet == l.Subnet {
+			return &l
+		}
+	}
+
+	return nil
+}
+
 const (
 	flannelSubnetRegex  = `FLANNEL_SUBNET=((?:[0-9]{1,3}\.){3}[0-9]{1,3}/[0-9]{1,2})`
 	flannelNetworkRegex = `FLANNEL_NETWORK=((?:[0-9]{1,3}\.){3}[0-9]{1,3}/[0-9]{1,2})`
@@ -153,11 +163,10 @@ func tryGetSubnetFromFile() *ip.IP4Net {
 	if err != nil {
 		return nil
 	}
-	ipaddr, ipnet, err := net.ParseCIDR(subnet)
+	_, ipnet, err := net.ParseCIDR(subnet)
 	if err != nil {
 		return nil
 	}
-	ipnet.IP = ipaddr
 	ip4net := ip.FromIPNet(ipnet)
 	return &ip4net
 }
@@ -176,7 +185,10 @@ func (m *LocalManager) tryAcquireLease(ctx context.Context, network string, conf
 	if l == nil {
 		subnet := tryGetSubnetFromFile()
 		if subnet != nil {
-			l = &Lease{Subnet: *subnet}
+			existingLease := findLeaseBySubnet(leases, *subnet)
+			if existingLease == nil {
+				l = &Lease{Subnet: *subnet}
+			}
 		}
 	}
 
