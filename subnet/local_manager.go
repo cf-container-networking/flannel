@@ -158,8 +158,13 @@ func discoverNetworkInfo(filepath string) (string, string, error) {
 	return subnetMatches[1], networkMatches[1], nil
 }
 
+const (
+	defaultSubnetEnvPath = "/run/flannel/subnet.env"
+	boshSubnetEnvPath    = "/var/vcap/data/flannel/subnet.env"
+)
+
 func tryGetSubnetFromFile() *ip.IP4Net {
-	subnet, _, err := discoverNetworkInfo("/run/flannel/subnet.env")
+	subnet, _, err := discoverNetworkInfo(boshSubnetEnvPath)
 	if err != nil {
 		return nil
 	}
